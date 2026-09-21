@@ -1,0 +1,1017 @@
+{
+  "datasets": [
+    {
+      "name": "zip_main",
+      "displayName": "ZIP Service Gap (Selected)",
+      "queryLines": [
+        "WITH params AS (\n",
+        "  SELECT\n",
+        "    :zip AS search_zip\n",
+        ")\n",
+        "SELECT\n",
+        "  COALESCE(z.zip, p.search_zip) AS zip,\n",
+        "  z.borough,\n",
+        "  z.complaints,\n",
+        "  z.complaints_capped,\n",
+        "  z.top_address_share,\n",
+        "  z.no_show_rate,\n",
+        "  z.rodent_evidence_rate,\n",
+        "  z.sgi,\n",
+        "  z.sgi_rank,\n",
+        "  z.ranked_zip_count,\n",
+        "  z.is_sparse,\n",
+        "  z.restaurants,\n",
+        "  z.era2_median_days_to_close,\n",
+        "  CASE\n",
+        "    WHEN z.zip IS NULL THEN 'Not an NYC ZIP code.'\n",
+        "    WHEN\n",
+        "      z.is_sparse\n",
+        "    THEN\n",
+        "      CONCAT(\n",
+        "        'Not enough data to rank: ',\n",
+        "        CAST(z.complaints AS STRING),\n",
+        "        ' complaints, ',\n",
+        "        CAST(z.restaurants AS STRING),\n",
+        "        ' restaurants.'\n",
+        "      )\n",
+        "    ELSE\n",
+        "      CONCAT(\n",
+        "        'Service Gap Index ',\n",
+        "        CAST(CAST(z.sgi AS INT) AS STRING),\n",
+        "        ' / 100 — rank ',\n",
+        "        CAST(z.sgi_rank AS STRING),\n",
+        "        ' of ',\n",
+        "        CAST(z.ranked_zip_count AS STRING),\n",
+        "        ' NYC ZIPs.'\n",
+        "      )\n",
+        "  END AS header_sentence\n",
+        "FROM\n",
+        "  params p\n",
+        "    LEFT JOIN workspace.default.zip_service_gap_ranked z\n",
+        "      ON z.zip = p.search_zip"
+      ],
+      "parameters": [
+        {
+          "displayName": "ZIP Code",
+          "keyword": "zip",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "11201"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "complaints_monthly",
+      "displayName": "Complaints by Month",
+      "queryLines": [
+        "SELECT\n",
+        "  date_trunc('month', created_at) AS month,\n",
+        "  COUNT(*) AS complaints,\n",
+        "  SUM(\n",
+        "    CASE\n",
+        "      WHEN auto_closed THEN 1\n",
+        "      ELSE 0\n",
+        "    END\n",
+        "  ) AS closed_without_visit\n",
+        "FROM\n",
+        "  workspace.default.rodent_complaints_clean\n",
+        "WHERE\n",
+        "  zip = :zip\n",
+        "GROUP BY\n",
+        "  1\n",
+        "ORDER BY\n",
+        "  1"
+      ],
+      "parameters": [
+        {
+          "displayName": "ZIP Code",
+          "keyword": "zip",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "11201"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "restaurants_list",
+      "displayName": "Restaurants with Rodent Evidence",
+      "queryLines": [
+        "SELECT\n",
+        "  restaurant_name,\n",
+        "  cuisine,\n",
+        "  inspections,\n",
+        "  last_inspection_date\n",
+        "FROM\n",
+        "  workspace.default.restaurants\n",
+        "WHERE\n",
+        "  zip = :zip\n",
+        "  AND has_rodent_evidence\n",
+        "ORDER BY\n",
+        "  last_inspection_date DESC\n",
+        "LIMIT 15"
+      ],
+      "parameters": [
+        {
+          "displayName": "ZIP Code",
+          "keyword": "zip",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "11201"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "citywide_ctx",
+      "displayName": "Citywide SGI Context",
+      "queryLines": [
+        "SELECT zip, sgi,\n",
+        "  CASE WHEN zip = :zip THEN 'Selected ZIP' ELSE 'Other ZIPs' END AS is_selected\n",
+        "FROM workspace.default.zip_service_gap_ranked\n",
+        "WHERE sgi IS NOT NULL\n",
+        "ORDER BY sgi DESC\n",
+        "LIMIT 15"
+      ],
+      "parameters": [
+        {
+          "displayName": "ZIP Code",
+          "keyword": "zip",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "11201"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "b464b0e5",
+      "displayName": "Top 10 ZIPs by Raw Complaint Count vs. Capped Complaints",
+      "queryLines": [
+        "\n",
+        "SELECT \n",
+        "  zip, \n",
+        "  borough, \n",
+        "  complaints, \n",
+        "  complaints_capped, \n",
+        "  top_address_complaints, \n",
+        "  top_address_share,\n",
+        "  distinct_addresses,\n",
+        "  restaurants,\n",
+        "  complaints_per_restaurant\n",
+        "FROM workspace.default.zip_service_gap_index \n",
+        "ORDER BY complaints DESC \n",
+        "LIMIT 10\n"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "main",
+      "displayName": "Is My Block Cursed?",
+      "layout": [
+        {
+          "widget": {
+            "name": "zip_filter",
+            "queries": [
+              {
+                "name": "parameter_dashboards/01f1b478e771177a92a8ac24125f538f/datasets/01f1b478e7721230921880e4e569340a_zip",
+                "query": {
+                  "datasetName": "zip_main",
+                  "parameters": [
+                    {
+                      "name": "zip",
+                      "keyword": "zip"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1b478e771177a92a8ac24125f538f/datasets/01f1b478e77212359958b445377a539d_zip",
+                "query": {
+                  "datasetName": "complaints_monthly",
+                  "parameters": [
+                    {
+                      "name": "zip",
+                      "keyword": "zip"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1b478e771177a92a8ac24125f538f/datasets/01f1b478e7721236b32f00a3da82dd69_zip",
+                "query": {
+                  "datasetName": "restaurants_list",
+                  "parameters": [
+                    {
+                      "name": "zip",
+                      "keyword": "zip"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1b478e771177a92a8ac24125f538f/datasets/01f1b478e772123787265acfc2171169_zip",
+                "query": {
+                  "datasetName": "citywide_ctx",
+                  "parameters": [
+                    {
+                      "name": "zip",
+                      "keyword": "zip"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "ZIP Code",
+                  "fields": []
+                }
+              },
+              "widgetType": "filter-text-entry",
+              "encodings": {
+                "fields": [
+                  {
+                    "parameterName": "zip",
+                    "queryName": "parameter_dashboards/01f1b478e771177a92a8ac24125f538f/datasets/01f1b478e7721230921880e4e569340a_zip"
+                  },
+                  {
+                    "parameterName": "zip",
+                    "queryName": "parameter_dashboards/01f1b478e771177a92a8ac24125f538f/datasets/01f1b478e77212359958b445377a539d_zip"
+                  },
+                  {
+                    "parameterName": "zip",
+                    "queryName": "parameter_dashboards/01f1b478e771177a92a8ac24125f538f/datasets/01f1b478e7721236b32f00a3da82dd69_zip"
+                  },
+                  {
+                    "parameterName": "zip",
+                    "queryName": "parameter_dashboards/01f1b478e771177a92a8ac24125f538f/datasets/01f1b478e772123787265acfc2171169_zip"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "header_card",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "zip_main",
+                  "fields": [
+                    {
+                      "name": "zip",
+                      "expression": "`zip`"
+                    },
+                    {
+                      "name": "borough",
+                      "expression": "`borough`"
+                    },
+                    {
+                      "name": "header_sentence",
+                      "expression": "`header_sentence`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "frame": {
+                "showTitle": true,
+                "title": "Is my block cursed?"
+              },
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "zip",
+                    "displayName": "ZIP"
+                  },
+                  {
+                    "fieldName": "borough",
+                    "displayName": "Borough"
+                  },
+                  {
+                    "fieldName": "header_sentence",
+                    "displayName": "Verdict"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 0,
+            "width": 9,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "counter_no_show",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "zip_main",
+                  "fields": [
+                    {
+                      "name": "no_show_rate",
+                      "expression": "`no_show_rate`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "showDescription": true,
+                "title": {
+                  "value": "Calls closed without a visit (Jan 2025–Mar 2026)",
+                  "fields": []
+                },
+                "description": {
+                  "value": "City avg is 61%",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "no_show_rate",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 6,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "counter_rodent",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "zip_main",
+                  "fields": [
+                    {
+                      "name": "rodent_evidence_rate",
+                      "expression": "`rodent_evidence_rate`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "showDescription": true,
+                "title": {
+                  "value": "Restaurants with rodent evidence",
+                  "fields": []
+                },
+                "description": {
+                  "value": "City avg is 23%",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "rodent_evidence_rate",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 2,
+            "width": 6,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "complaints_line",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "complaints_monthly",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "complaints",
+                      "expression": "`complaints`"
+                    },
+                    {
+                      "name": "closed_without_visit",
+                      "expression": "`closed_without_visit`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "frame": {
+                "showTitle": true,
+                "title": "Complaints by month"
+              },
+              "annotations": [
+                {
+                  "type": "vertical-line",
+                  "encodings": {
+                    "type": "constant",
+                    "label": {
+                      "value": "auto-closing stopped"
+                    },
+                    "x": {
+                      "dataValue": "2026-04-01T00:00:00.000",
+                      "dataType": "DATETIME"
+                    }
+                  }
+                }
+              ],
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Month"
+                },
+                "y": {
+                  "fields": [
+                    {
+                      "fieldName": "complaints",
+                      "displayName": "Complaints"
+                    },
+                    {
+                      "fieldName": "closed_without_visit",
+                      "displayName": "Closed without a visit"
+                    }
+                  ],
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 12,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "counter_complaints",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "zip_main",
+                  "fields": [
+                    {
+                      "name": "complaints",
+                      "expression": "`complaints`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "complaints"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Complaints"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 10,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "counter_complaints_capped",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "zip_main",
+                  "fields": [
+                    {
+                      "name": "complaints_capped",
+                      "expression": "`complaints_capped`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "Complaints (capped: one per address per day)",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "complaints_capped"
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "counter_top_address",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "zip_main",
+                  "fields": [
+                    {
+                      "name": "top_address_share",
+                      "expression": "`top_address_share`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "showDescription": false,
+                "title": {
+                  "value": "Share from one address",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "top_address_share",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 10,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "counter_days_to_close",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "zip_main",
+                  "fields": [
+                    {
+                      "name": "era2_median_days_to_close",
+                      "expression": "`era2_median_days_to_close`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "era2_median_days_to_close"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Days to close, since Apr 2026"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 12,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "restaurants_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "restaurants_list",
+                  "fields": [
+                    {
+                      "name": "restaurant_name",
+                      "expression": "`restaurant_name`"
+                    },
+                    {
+                      "name": "cuisine",
+                      "expression": "`cuisine`"
+                    },
+                    {
+                      "name": "inspections",
+                      "expression": "`inspections`"
+                    },
+                    {
+                      "name": "last_inspection_date",
+                      "expression": "`last_inspection_date`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "Restaurants with rodent evidence in this ZIP",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "restaurant_name",
+                    "displayName": "Restaurant"
+                  },
+                  {
+                    "fieldName": "cuisine",
+                    "displayName": "Cuisine"
+                  },
+                  {
+                    "fieldName": "inspections",
+                    "displayName": "Inspections"
+                  },
+                  {
+                    "fieldName": "last_inspection_date",
+                    "displayName": "Last inspection"
+                  }
+                ]
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 14,
+            "width": 4,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "citywide_bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "citywide_ctx",
+                  "fields": [
+                    {
+                      "name": "zip",
+                      "expression": "`zip`"
+                    },
+                    {
+                      "name": "sgi",
+                      "expression": "`sgi`"
+                    },
+                    {
+                      "name": "is_selected",
+                      "expression": "`is_selected`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "frame": {
+                "showTitle": true,
+                "title": "Citywide context: top 15 ZIPs by Service Gap Index"
+              },
+              "encodings": {
+                "x": {
+                  "fieldName": "zip",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  },
+                  "displayName": "ZIP"
+                },
+                "y": {
+                  "fieldName": "sgi",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "SGI"
+                },
+                "color": {
+                  "fieldName": "is_selected",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Selected ZIP",
+                        "color": "#D55E00"
+                      },
+                      {
+                        "value": "Other ZIPs",
+                        "color": "#9DB4C8"
+                      }
+                    ]
+                  },
+                  "displayName": "ZIP"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 10,
+            "width": 8,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "footer",
+            "multilineTextboxSpec": {
+              "lines": [
+                "*311 measures who calls 311, not where rats are. Complaints are normalized by restaurant count, not population.*"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 20,
+            "width": 4,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "4341ebdf",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "b464b0e5",
+                  "fields": [
+                    {
+                      "name": "zip",
+                      "expression": "`zip`"
+                    },
+                    {
+                      "name": "complaints",
+                      "expression": "`complaints`"
+                    },
+                    {
+                      "name": "complaints_capped",
+                      "expression": "`complaints_capped`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": {
+                  "value": "Top 10 ZIPs by Raw Complaint Count vs. Capped Complaints",
+                  "fields": []
+                }
+              },
+              "mark": {
+                "layout": "group"
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "zip",
+                  "displayName": "ZIP Code",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "custom-order",
+                      "orderedValues": [
+                        "10035",
+                        "10452",
+                        "11233",
+                        "11226",
+                        "11221",
+                        "11216",
+                        "11238",
+                        "10025",
+                        "11385",
+                        "10027"
+                      ]
+                    }
+                  }
+                },
+                "y": {
+                  "fields": [
+                    {
+                      "fieldName": "complaints",
+                      "displayName": "Raw Complaints"
+                    },
+                    {
+                      "fieldName": "complaints_capped",
+                      "displayName": "Capped Complaints"
+                    }
+                  ],
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 16,
+            "width": 8,
+            "height": 5
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#FCFCFC",
+        "dark": "#1F272D"
+      },
+      "widgetBackgroundColor": {
+        "light": "#FFFFFF",
+        "dark": "#11171C"
+      },
+      "fontColor": {
+        "light": "#11171C",
+        "dark": "#E8ECF0"
+      },
+      "selectionColor": {
+        "light": "#2272B4",
+        "dark": "#8ACAFF"
+      },
+      "visualizationColors": [
+        "#0072B2",
+        "#E69F00",
+        "#009E73",
+        "#CC79A7",
+        "#D55E00"
+      ],
+      "widgetHeaderAlignment": "LEFT"
+    },
+    "applyModeEnabled": false
+  }
+}
